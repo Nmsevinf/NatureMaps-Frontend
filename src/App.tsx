@@ -1,12 +1,15 @@
+import { useState } from 'react';
+import { BottomNavigation } from './components/BottomNavigation';
+import type { TabId } from './types/navigation';
+
 function App() {
+  const [activeTab, setActiveTab] = useState<TabId>('mapa');
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-neutral-950 text-white">
-      <h1 className="text-4xl font-bold text-emerald-400">NatureMaps</h1>
-      <p className="text-neutral-400">
-        React + TypeScript + Tailwind + Vite
-      </p>
+    <main className="min-h-screen bg-neutral-100 flex flex-col justify-end">
+      <BottomNavigation activeTab={activeTab} onChange={setActiveTab} />
     </main>
-  )
+  );
 }
 
-export default App
+export default App;
