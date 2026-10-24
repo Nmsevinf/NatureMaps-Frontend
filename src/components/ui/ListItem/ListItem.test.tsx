@@ -22,6 +22,11 @@ describe('ListItem', () => {
     expect(onClick).toHaveBeenCalledTimes(1)
   })
 
+  it('si es seleccionable anuncia si está elegido', () => {
+    render(<ListItem title="English" selected onClick={() => {}} />)
+    expect(screen.getByRole('button', { name: 'English' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('sin acción es solo texto y muestra el contenido trailing', () => {
     render(<ListItem title="Info" trailing={<span>derecha</span>} />)
     expect(screen.queryByRole('button')).not.toBeInTheDocument()

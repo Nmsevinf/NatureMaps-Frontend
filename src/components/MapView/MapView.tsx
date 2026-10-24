@@ -3,6 +3,7 @@ import 'leaflet/dist/leaflet.css'
 import { MapPin } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { MapContainer, Marker, TileLayer, useMap } from 'react-leaflet'
+import { useApp } from '../../context/useApp'
 import { Card } from '../ui/Card'
 import { IconButton } from '../ui/IconButton'
 
@@ -18,6 +19,7 @@ const meIcon = L.divIcon({
 
 function LocateButton({ onPosition, onError }: { onPosition: (p: [number, number]) => void; onError: () => void }) {
   const map = useMap()
+  const { t } = useApp()
   const locate = () => {
     if (!navigator.geolocation) return onError()
     navigator.geolocation.getCurrentPosition(
@@ -30,7 +32,7 @@ function LocateButton({ onPosition, onError }: { onPosition: (p: [number, number
       { enableHighAccuracy: true, timeout: 10000 },
     )
   }
-  return <IconButton icon={MapPin} label="Mi ubicación" variant="accent" className="absolute right-4 bottom-4 z-[500] shadow-float" onClick={locate} />
+  return <IconButton icon={MapPin} label={t('map.locate')} variant="accent" className="absolute right-4 bottom-4 z-[500] shadow-float" onClick={locate} />
 }
 
 export interface MapViewProps {
@@ -41,6 +43,7 @@ export interface MapViewProps {
 
 /** Mapa base de OpenStreetMap centrado en Valencia, con botón de "mi ubicación". */
 export function MapView({ children, zoom = 14 }: MapViewProps) {
+  const { t } = useApp()
   const [me, setMe] = useState<[number, number] | null>(null)
   const [error, setError] = useState(false)
 
@@ -63,7 +66,7 @@ export function MapView({ children, zoom = 14 }: MapViewProps) {
       </MapContainer>
       {error && (
         <Card role="alert" className="absolute inset-x-4 top-4 z-[500] text-small shadow-float">
-          No se ha podido obtener tu ubicación
+          {t('map.locationDenied')}
         </Card>
       )}
     </div>

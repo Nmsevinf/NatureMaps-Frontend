@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Page } from '../../components/Page'
 import { Button } from '../../components/ui/Button'
 import { EmptyState } from '../../components/ui/EmptyState'
+import { useApp } from '../../context/useApp'
 import { markCameraPermissionSeen } from '../../utils/cameraPermission'
 
 /**
@@ -11,6 +12,7 @@ import { markCameraPermissionSeen } from '../../utils/cameraPermission'
  * fotografiar una planta o un monumento. "Permitir" lanza el aviso real del navegador.
  */
 export function PermisoCamara() {
+  const { t } = useApp()
   const navigate = useNavigate()
   const [denied, setDenied] = useState(false)
 
@@ -31,27 +33,23 @@ export function PermisoCamara() {
   }
 
   return (
-    <Page title="Escanear" back>
+    <Page title={t('camera.title')} back>
       <EmptyState
         icon={ScanLine}
-        title="Permiso de cámara"
-        description={
-          denied
-            ? 'No has dado permiso a la cámara. Puedes activarlo en los ajustes del navegador o elegir una foto de la galería.'
-            : 'Nature MAPS necesita la cámara para que puedas fotografiar una planta o un monumento e identificarlo. Solo se usa cuando escaneas.'
-        }
+        title={t('camera.heading')}
+        description={denied ? t('camera.denied') : t('camera.desc')}
       />
       {denied ? (
         <Button block onClick={goScan}>
-          Continuar
+          {t('camera.continue')}
         </Button>
       ) : (
         <>
           <Button block icon={ScanLine} onClick={allow}>
-            Permitir la cámara
+            {t('camera.allow')}
           </Button>
           <Button block variant="ghost" onClick={() => navigate('/inicio', { replace: true })}>
-            Ahora no
+            {t('camera.later')}
           </Button>
         </>
       )}

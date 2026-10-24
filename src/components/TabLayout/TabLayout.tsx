@@ -1,6 +1,17 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import type { TabId } from '../../types/navigation'
+import { useApp } from '../../context/useApp'
+import type { StringKey } from '../../i18n/strings'
+import type { TabConfig, TabId } from '../../types/navigation'
 import { BottomNavigation, DEFAULT_TABS } from '../BottomNavigation'
+
+// Textos traducibles de cada pestaña (nombre visible y nombre accesible).
+const TAB_TEXT: Record<TabId, { label: StringKey; aria: StringKey }> = {
+  inicio: { label: 'nav.home', aria: 'nav.home.aria' },
+  mapa: { label: 'nav.map', aria: 'nav.map.aria' },
+  escanear: { label: 'nav.scan', aria: 'nav.scan.aria' },
+  rutas: { label: 'nav.routes', aria: 'nav.routes.aria' },
+  buscar: { label: 'nav.search', aria: 'nav.search.aria' },
+}
 
 /** Las rutas de las pestañas coinciden con su id: /inicio, /mapa, /escanear, /rutas, /buscar. */
 function tabFromPath(pathname: string): TabId {
@@ -12,7 +23,13 @@ function tabFromPath(pathname: string): TabId {
 export function TabLayout() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const { t } = useApp()
   const activeTab = tabFromPath(pathname)
+  const tabs: TabConfig[] = DEFAULT_TABS.map((tab) => ({
+    ...tab,
+    label: t(TAB_TEXT[tab.id].label),
+    ariaLabel: t(TAB_TEXT[tab.id].aria),
+  }))
 
   return (
     <>
@@ -21,7 +38,14 @@ export function TabLayout() {
           <Outlet />
         </div>
       </main>
-      <BottomNavigation position="relative" activeTab={activeTab} onChange={(tab) => navigate(`/${tab}`)} />
+      <BottomNavigation
+        position="relative"
+        tabs={tabs}
+        navLabel={t('nav.label')}
+        activeText={t('nav.active')}
+        activeTab={activeTab}
+        onChange={(tab) => navigate(`/${tab}`)}
+      />
     </>
   )
 }

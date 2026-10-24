@@ -29,6 +29,20 @@ describe('App', () => {
     expect(await screen.findByTestId('mapa')).toBeInTheDocument()
   })
 
+  it('flujo de idioma: desde Ajustes se cambia y toda la app se traduce al instante', async () => {
+    localStorage.setItem('naturemaps:prefs', JSON.stringify({ mode: 'esencial' }))
+    renderWithProviders(<App />, { entries: ['/inicio', '/ajustes'], index: 1 })
+    fireEvent.click(screen.getByRole('link', { name: /idioma/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'English' }))
+    expect(localStorage.getItem('naturemaps.language')).toBe('en')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /language/i })).toHaveTextContent('English')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByRole('heading', { name: 'Hi, explorer' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Go to Home' })).toHaveTextContent('Home')
+  })
+
   it('una ruta desconocida muestra el 404', () => {
     renderWithProviders(<App />, { route: '/nada' })
     expect(screen.getByText('Pantalla no encontrada')).toBeInTheDocument()

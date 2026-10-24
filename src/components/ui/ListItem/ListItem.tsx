@@ -45,7 +45,7 @@ export function ListItem({ title, subtitle, icon: Icon, to, onClick, trailing, s
     )
   if (onClick)
     return (
-      <button type="button" className={cls} onClick={onClick}>
+      <button type="button" className={cls} onClick={onClick} aria-pressed={selected}>
         {inner}
       </button>
     )

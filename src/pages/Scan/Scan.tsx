@@ -4,6 +4,7 @@ import { Navigate, useLocation } from 'react-router-dom'
 import { Page } from '../../components/Page'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
+import { useApp } from '../../context/useApp'
 import { hasSeenCameraPermission } from '../../utils/cameraPermission'
 
 /**
@@ -12,6 +13,7 @@ import { hasSeenCameraPermission } from '../../utils/cameraPermission'
  * La primera vez se pasa antes por la pantalla "Permiso cámara" (/permiso-camara).
  */
 export function Scan() {
+  const { t } = useApp()
   const location = useLocation()
   const handled = (location.state as { permissionHandled?: boolean } | null)?.permissionHandled
   const needsPermission = !handled && !hasSeenCameraPermission() && Boolean(navigator.mediaDevices?.getUserMedia)
@@ -67,31 +69,31 @@ export function Scan() {
   if (needsPermission) return <Navigate to="/permiso-camara" replace />
 
   return (
-    <Page title="Escanear" subtitle="Encuadra la hoja o la flor">
+    <Page title={t('scan.title')} subtitle={t('scan.hint')}>
       <div className="relative grid aspect-[3/4] max-h-[55vh] place-items-center overflow-hidden rounded-panel bg-[#14251a]">
         {previewUrl ? (
-          <img src={previewUrl} alt="Foto capturada" className="size-full object-cover" />
+          <img src={previewUrl} alt={t('scan.photoAlt')} className="size-full object-cover" />
         ) : cameraOk ? (
           <video ref={videoRef} className="size-full object-cover" autoPlay playsInline muted />
         ) : (
-          <p className="p-6 text-center text-small text-white/80">Cámara no disponible. Puedes elegir una foto de la galería.</p>
+          <p className="p-6 text-center text-small text-white/80">{t('scan.noCamera')}</p>
         )}
       </div>
 
       {photo ? (
         <>
-          <Card>La identificación con Pl@ntNet se conectará desde el backend.</Card>
+          <Card>{t('scan.pending')}</Card>
           <Button variant="secondary" icon={RefreshCw} block onClick={() => setPhoto(null)}>
-            Repetir
+            {t('scan.retake')}
           </Button>
         </>
       ) : (
         <div className="flex items-center justify-between gap-4">
           <Button variant="secondary" icon={ImageIcon} onClick={() => fileRef.current?.click()}>
-            Galería
+            {t('scan.gallery')}
           </Button>
           {cameraOk && (
-            <button type="button" className="size-[68px] rounded-full border-4 border-accent bg-white shadow-float" onClick={capture} aria-label="Hacer foto" />
+            <button type="button" className="size-[68px] rounded-full border-4 border-accent bg-white shadow-float" onClick={capture} aria-label={t('scan.shutter')} />
           )}
         </div>
       )}

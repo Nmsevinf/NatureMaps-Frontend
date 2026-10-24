@@ -6,6 +6,7 @@ import { TabLayout } from './components/TabLayout'
 import { useApp } from './context/useApp'
 import { Components } from './pages/Components'
 import { Home } from './pages/Home'
+import { Language } from './pages/Language'
 import { ModeSelect } from './pages/ModeSelect'
 import { NotFound } from './pages/NotFound'
 import { PermisoCamara } from './pages/PermisoCamara'
@@ -18,10 +19,11 @@ import { Settings } from './pages/Settings'
 const MapScreen = lazy(() => import('./pages/MapScreen').then((m) => ({ default: m.MapScreen })))
 
 function MapFallback() {
+  const { t } = useApp()
   return (
-    <Page title="Mapa" flush>
+    <Page title={t('map.title')} flush>
       <p role="status" className="grid flex-1 place-items-center text-small text-muted">
-        Cargando mapa…
+        {t('map.loading')}
       </p>
     </Page>
   )
@@ -58,6 +60,7 @@ export default function App() {
           <Route path="/modo" element={<ModeSelect />} />
           <Route path="/permiso-camara" element={<PermisoCamara />} />
           <Route path="/ajustes" element={<Settings />} />
+          <Route path="/ajustes/idioma" element={<Language />} />
           <Route path="/componentes" element={<Components />} />
           <Route path="*" element={<NotFound />} />
         </Route>

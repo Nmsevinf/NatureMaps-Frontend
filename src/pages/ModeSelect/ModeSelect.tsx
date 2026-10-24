@@ -7,18 +7,18 @@ import { useApp } from '../../context/useApp'
 
 /** Selección de modo. Al elegir uno, toda la app cambia su color de acento. */
 export function ModeSelect() {
-  const { mode, setMode } = useApp()
+  const { mode, setMode, t } = useApp()
   const navigate = useNavigate()
 
   return (
-    <Page title="¿Cómo quieres explorar Valencia?" subtitle="Elige un modo — puedes cambiarlo luego en Ajustes">
+    <Page title={t('mode.title')} subtitle={t('mode.subtitle')}>
       <List>
         {MODES.map((m) => (
           <ListItem
             key={m.mode}
             icon={m.icon}
-            title={m.title}
-            subtitle={m.description}
+            title={t(m.title)}
+            subtitle={t(m.description)}
             selected={mode === m.mode}
             onClick={() => {
               setMode(m.mode)

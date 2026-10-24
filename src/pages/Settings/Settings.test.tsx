@@ -20,6 +20,16 @@ describe('Settings', () => {
     await screen.findByText('Conectado')
   })
 
+  it('enlaza a la pantalla de idioma mostrando el idioma actual', async () => {
+    localStorage.setItem('naturemaps.language', 'va')
+    vi.mocked(checkHealth).mockResolvedValue(true)
+    renderWithProviders(<Settings />)
+    const link = screen.getByRole('link', { name: /idioma/i })
+    expect(link).toHaveAttribute('href', '/ajustes/idioma')
+    expect(link).toHaveTextContent('Valencià')
+    await screen.findByText('Connectat')
+  })
+
   it('muestra el modo actual como subtítulo', async () => {
     localStorage.setItem('naturemaps:prefs', JSON.stringify({ mode: 'educativo' }))
     vi.mocked(checkHealth).mockResolvedValue(true)
