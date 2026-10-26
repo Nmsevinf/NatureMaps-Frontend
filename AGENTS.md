@@ -3,9 +3,9 @@
 Guía para agentes (y personas) que trabajen en este repositorio. Mantenerla actualizada cuando
 cambien los comandos, la estructura o las convenciones.
 
-> Última verificación: 2026-10-25 · `main` @ `50f8c3b` (scaffold + F16 + ficha RF3 +
-> envío de foto a Pl@ntNet F04, mergeados) · Rama de trabajo:
-> `feat/contenido-especies-demo` (UT 918 - F06, textos de especies de la demo).
+> Última verificación: 2026-10-26 · `main` @ `1289d1e` (scaffold + F16 + ficha RF3 + envío de
+> foto a Pl@ntNet F04 + textos de especies F06, mergeados) · Rama de trabajo:
+> `feat/selector-idioma` (F10.1, PR #6, selector de idioma en Ajustes).
 
 ## Qué es este proyecto
 
@@ -28,19 +28,19 @@ No hay monorepo ni workspace: cada repo se instala y ejecuta por separado con `n
 - la navegación inferior de F16 (PR #1, `src/components/BottomNavigation/` con tests y Vitest);
 - la pantalla de ficha de planta de RF3 (PR #8, `src/pages/FichaPlanta/`);
 - el envío de foto al backend para identificar con Pl@ntNet, UT F04 (PR #9,
-  `src/pages/Scan/`, `src/services/identify.ts` y `src/types/identify.ts`).
+  `src/pages/Scan/`, `src/services/identify.ts` y `src/types/identify.ts`);
+- el contenido de las 6 especies de la demo, UT 918 - F06 (PR #14,
+  `src/pages/FichaPlanta/constants.ts` y `docs/contenido-especies-demo.md`).
 
-El resto de pantallas (mapa, rutas, búsqueda, ajustes…) llegan con sus propias UTs.
+El resto de pantallas (mapa, rutas, búsqueda…) llegan con sus propias UTs.
 
-Ramas con PR abierta (a 25/10/2026):
+Ramas con PR abierta (a 26/10/2026):
 
 - `feat/selector-idioma` (F10.1, PR #6): selector de idioma en Ajustes.
 - `feat/pantallas-iniciales` (PR #11): pantallas iniciales con rutas, selector de modo y kit
   de UI.
 - `feat/traduccion-pantallas` (PR #12): traducción de pantallas a es/va/en.
 - `feat/camara` (PR #13): pantallas de cámara y permisos.
-- `feat/contenido-especies-demo` (UT 918 - F06, PR pendiente de abrir): contenido de las
-  especies de la demo con trazabilidad de fuentes (RF3/RNF6).
 
 Otras ramas remotas sin PR activa: `feat/mapa-base`, `feat/porcentaje-confianza`,
 `feat/respuesta-sinconexionPlantNet`. `feat/ficha-planta` y `feat/envio-foto-plantnet`
@@ -60,10 +60,10 @@ endpoint de ficha. La entrada a la ficha es una tarjeta provisional en la pantal
 (`src/App.tsx`): desaparecerá cuando existan las pantallas de mapa o de búsqueda, que son las
 que abrirán una ficha de verdad.
 
-La UI está en español. El selector de idioma (`feat/selector-idioma`) guarda la preferencia
-(es/va/en) pero **no traduce los textos**: eso corresponde a la UT44 (rama
-`feat/traduccion-pantallas`). El frontend consume el backend solo para la identificación por
-foto (`src/services/identify.ts` → `POST /plants/identify`); la ficha de planta no tiene
+Ajustes (`src/pages/Settings/`) permite elegir idioma (es/va/en) y guarda la preferencia en
+`localStorage`, pero **no traduce los textos**: eso corresponde a la UT44 (rama
+`feat/traduccion-pantallas`, PR #12). El frontend consume el backend solo para la identificación
+por foto (`src/services/identify.ts` → `POST /plants/identify`); la ficha de planta no tiene
 servicio todavía.
 
 ## Stack
@@ -96,7 +96,8 @@ src/main.tsx          Bootstrap: createRoot + <StrictMode>
 src/App.tsx           Shell de la app
 src/index.css         @import "tailwindcss"
 src/components/       Componentes (una carpeta por componente)
-src/pages/            Vistas por ruta (FichaPlanta: ficha de planta; Scan: escaneo/identificación)
+src/pages/            Vistas por ruta (FichaPlanta: ficha de planta; Scan: escaneo/identificación;
+                      Settings: Ajustes e Idioma)
 src/services/         Cliente HTTP / integración con el backend (identificación, preferencia de idioma)
 src/types/            Tipos compartidos (navigation.ts, language.ts)
 public/               Assets estáticos (favicon, icons.svg)
