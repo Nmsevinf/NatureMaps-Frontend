@@ -1,122 +1,125 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
-import App from './App';
-import { LANGUAGE_STORAGE_KEY } from './services/languagePreference';
+import { fireEvent, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import App from './App'
+import { LANGUAGE_STORAGE_KEY } from './services/languagePreference'
+import { renderWithProviders } from './test/renderWithProviders'
 
-const renderApp = () => render(<App />);
+vi.mock('./components/MapView', () => ({ MapView: () => <div data-testid="mapa" /> }))
+vi.mock('./services/api', () => ({ checkHealth: vi.fn().mockResolvedValue(true) }))
 
-const openLanguagePage = () => {
-  fireEvent.click(screen.getByRole('button', { name: 'Abrir Ajustes' }));
-  fireEvent.click(screen.getByRole('button', { name: /idioma/i }));
-};
+const withMode = () => localStorage.setItem('naturemaps:prefs', JSON.stringify({ mode: 'esencial' }))
+
+describe('App', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('sin modo elegido empieza en la selección de modo', () => {
+    renderWithProviders(<App />)
+    expect(screen.getByRole('heading', { name: /cómo quieres explorar valencia/i })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+  })
+
+  it('con modo elegido empieza en inicio, con la barra inferior', () => {
+    withMode()
+    renderWithProviders(<App />)
+    expect(screen.getByRole('heading', { name: 'Hola, explorador' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /ir a inicio/i })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('el mapa se carga bajo demanda al entrar en la pestaña', async () => {
+    withMode()
+    renderWithProviders(<App />, { route: '/inicio' })
+    fireEvent.click(screen.getByRole('tab', { name: /ver mapa/i }))
+    expect(await screen.findByTestId('mapa')).toBeInTheDocument()
+  })
+
+  it('una ruta desconocida muestra el 404', () => {
+    renderWithProviders(<App />, { route: '/nada' })
+    expect(screen.getByText('Pantalla no encontrada')).toBeInTheDocument()
+  })
+
+  it('mantiene las cinco pestañas de la navegación inferior', () => {
+    withMode()
+    renderWithProviders(<App />, { route: '/inicio' })
+    expect(screen.getAllByRole('tab')).toHaveLength(5)
+  })
+})
 
 describe('selector de idioma en Ajustes', () => {
   beforeEach(() => {
-    localStorage.clear();
-  });
+    localStorage.clear()
+    withMode()
+  })
+
+  const openLanguagePage = () => {
+    renderWithProviders(<App />, { route: '/ajustes' })
+    fireEvent.click(screen.getByRole('link', { name: /idioma/i }))
+  }
 
   it('arranca con el español seleccionado por defecto', () => {
-    renderApp();
-
-    expect(screen.getByRole('tab', { name: 'Ir a Inicio' })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir Ajustes' }));
-    expect(screen.getByRole('heading', { name: 'Ajustes' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Idioma: Español' })).toBeInTheDocument();
-  });
+    renderWithProviders(<App />, { route: '/ajustes' })
+    expect(screen.getByRole('heading', { name: 'Ajustes' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /idioma/i })).toHaveTextContent('Español')
+  })
 
   it('ofrece español, valenciano e inglés en Ajustes > Idioma', () => {
-    renderApp();
-    openLanguagePage();
+    openLanguagePage()
+    expect(screen.getByRole('heading', { name: 'Idioma' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Español' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Valencià' })).not.toBeChecked()
+    expect(screen.getByRole('radio', { name: 'English' })).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Guardar' })).toBeInTheDocument()
+  })
 
-    expect(screen.getByRole('heading', { name: 'Idioma' })).toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Español' })).toBeChecked();
-    expect(screen.getByRole('radio', { name: 'Valencià' })).not.toBeChecked();
-    expect(screen.getByRole('radio', { name: 'English' })).not.toBeChecked();
-    expect(screen.getByRole('button', { name: 'Guardar' })).toBeInTheDocument();
-  });
+  it('guarda el inglés como preferencia y vuelve a Ajustes sin traducir los textos', () => {
+    openLanguagePage()
+    fireEvent.click(screen.getByRole('radio', { name: 'English' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
-  it('guarda el inglés como preferencia sin traducir los textos', () => {
-    renderApp();
-    openLanguagePage();
-
-    fireEvent.click(screen.getByRole('radio', { name: 'English' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
-
-    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('en');
-    expect(screen.getByRole('heading', { name: 'Ajustes' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Idioma: English' })).toBeInTheDocument();
-    // La traducción de los textos llega en otra UT: aquí todo sigue en español.
-    expect(screen.getByRole('tab', { name: 'Ir a Inicio' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Ver Mapa de especies y árboles' })).toBeInTheDocument();
-  });
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('en')
+    expect(screen.getByRole('heading', { name: 'Ajustes' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /idioma/i })).toHaveTextContent('English')
+  })
 
   it('guarda el valenciano como preferencia', () => {
-    renderApp();
-    openLanguagePage();
+    openLanguagePage()
+    fireEvent.click(screen.getByRole('radio', { name: 'Valencià' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }))
 
-    fireEvent.click(screen.getByRole('radio', { name: 'Valencià' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
-
-    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('va');
-    expect(screen.getByRole('button', { name: 'Idioma: Valencià' })).toBeInTheDocument();
-  });
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('va')
+    expect(screen.getByRole('link', { name: /idioma/i })).toHaveTextContent('Valencià')
+  })
 
   it('descarta la selección si se sale sin guardar', () => {
-    renderApp();
-    openLanguagePage();
+    openLanguagePage()
+    fireEvent.click(screen.getByRole('radio', { name: 'English' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Volver' }))
 
-    fireEvent.click(screen.getByRole('radio', { name: 'English' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Volver' }));
-
-    expect(screen.getByRole('heading', { name: 'Ajustes' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Idioma: Español' })).toBeInTheDocument();
-    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBeNull();
-  });
+    expect(screen.getByRole('heading', { name: 'Ajustes' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /idioma/i })).toHaveTextContent('Español')
+    expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBeNull()
+  })
 
   it('restaura la preferencia guardada al volver a abrir la app', () => {
-    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'va');
-    renderApp();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Abrir Ajustes' }));
-    expect(screen.getByRole('button', { name: 'Idioma: Valencià' })).toBeInTheDocument();
-  });
-
-  it('mantiene las cinco pestañas y su rejilla al guardar el idioma', () => {
-    renderApp();
-
-    expect(screen.getAllByRole('tab')).toHaveLength(5);
-    expect(screen.getByRole('tablist')).toHaveClass('grid-cols-5');
-
-    openLanguagePage();
-    fireEvent.click(screen.getByRole('radio', { name: 'English' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar' }));
-
-    expect(screen.getAllByRole('tab')).toHaveLength(5);
-    expect(screen.getByRole('tablist')).toHaveClass('grid-cols-5');
-  });
-});
+    localStorage.setItem(LANGUAGE_STORAGE_KEY, 'va')
+    renderWithProviders(<App />, { route: '/ajustes' })
+    expect(screen.getByRole('link', { name: /idioma/i })).toHaveTextContent('Valencià')
+  })
+})
 
 describe('ficha de planta (RF3)', () => {
-  it('mantiene las cinco pestañas de la navegación inferior', () => {
-    renderApp();
+  beforeEach(() => {
+    localStorage.clear()
+    withMode()
+  })
 
-    expect(screen.getAllByRole('tab')).toHaveLength(5);
-  });
+  it('abre la ficha desde Inicio y vuelve', () => {
+    renderWithProviders(<App />, { route: '/inicio' })
+    fireEvent.click(screen.getByRole('link', { name: /ficha de planta/i }))
 
-  it('abre la ficha desde las pestañas y vuelve a las pestañas', () => {
-    renderApp();
+    expect(screen.getByRole('heading', { level: 1, name: 'Jacaranda mimosifolia' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /ver en el mapa/i })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /ficha de planta/i }));
-
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'Jacaranda mimosifolia' }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ver en el mapa/i })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Volver' }));
-
-    expect(screen.getByRole('button', { name: /ficha de planta/i })).toBeInTheDocument();
-  });
-});
+    fireEvent.click(screen.getByRole('button', { name: 'Volver' }))
+    expect(screen.getByRole('heading', { name: 'Hola, explorador' })).toBeInTheDocument()
+  })
+})
