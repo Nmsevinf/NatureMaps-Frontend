@@ -6,6 +6,7 @@ import { MapPage } from './MapPage';
 const leaflet = vi.hoisted(() => {
   const map = {
     on: vi.fn(),
+    off: vi.fn(),
     remove: vi.fn(),
     setView: vi.fn(),
     flyTo: vi.fn(),
@@ -34,9 +35,15 @@ const leaflet = vi.hoisted(() => {
     setLatLng: vi.fn(function (this: unknown) { return this; }),
     setRadius: vi.fn(function (this: unknown) { return this; }),
   };
+  const layerGroup = {
+    addTo: vi.fn(function (this: unknown) { return this; }),
+    remove: vi.fn(),
+  };
   return {
     map,
     marker,
+    layerGroup,
+    layerGroupFactory: vi.fn(() => layerGroup),
     circle,
     mapFactory: vi.fn(() => map),
     tileLayer: vi.fn(() => ({ addTo: vi.fn() })),
@@ -55,6 +62,7 @@ vi.mock('leaflet', () => ({
     tileLayer: leaflet.tileLayer,
     marker: leaflet.markerFactory,
     circle: leaflet.circleFactory,
+    layerGroup: leaflet.layerGroupFactory,
     divIcon: leaflet.divIcon,
     latLngBounds: leaflet.latLngBounds,
     latLng: leaflet.latLng,
@@ -73,7 +81,11 @@ describe('MapPage', () => {
     vi.clearAllMocks();
     Object.defineProperty(navigator, 'geolocation', { configurable: true, value: geo });
     geo.watchPosition.mockReturnValue(7);
-    vi.stubGlobal('fetch', vi.fn());
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (
+      String(url).includes('/trees')
+        ? { ok: true, json: async () => ({ nextOffset: null, trees: [] }) }
+        : { ok: true, json: async () => [] }
+    ) as Response));
   });
 
   afterEach(() => {
@@ -128,12 +140,46 @@ describe('MapPage', () => {
   });
 
   it('permite buscar un lugar y anuncia cuando no hay resultados', async () => {
-    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
     render(<MapPage />);
     fireEvent.change(screen.getByRole('textbox', { name: 'Buscar sitios en el mapa' }), { target: { value: 'Xàtiva' } });
     fireEvent.click(screen.getByRole('button', { name: 'Buscar' }));
 
     expect(await screen.findByRole('status')).toHaveTextContent('No se encontraron lugares con ese nombre.');
-    await waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).includes('nominatim'))).toHaveLength(1));
+  });
+
+  it('908: pinta cada planta del inventario con su icono y su nombre', async () => {
+    vi.mocked(fetch).mockImplementation((async (url: string) => ({
+      ok: true,
+      json: async () => String(url).includes('/trees')
+        ? {
+            nextOffset: null,
+            trees: [
+              { id: 1, speciesId: 5, displayName: 'Naranjo amargo', latitude: 39.47, longitude: -0.37 },
+              { id: 2, speciesId: null, displayName: 'Planta sin identificar', latitude: 39.48, longitude: -0.38 },
+            ],
+          }
+        : [],
+    })) as unknown as typeof fetch);
+
+    render(<MapPage />);
+
+    await waitFor(() => expect(leaflet.layerGroupFactory).toHaveBeenCalledOnce());
+    expect(leaflet.markerFactory).toHaveBeenCalledWith([39.47, -0.37], expect.objectContaining({ title: 'Naranjo amargo', alt: 'Naranjo amargo' }));
+    expect(leaflet.markerFactory).toHaveBeenCalledWith([39.48, -0.38], expect.objectContaining({ title: 'Planta sin identificar' }));
+    const iconCalls = leaflet.divIcon.mock.calls as unknown as Array<[{ className: string; html?: HTMLElement }]>;
+    const icons = iconCalls.map(([options]) => options).filter((o) => o.className === 'plant-icon');
+    expect(icons).toHaveLength(2);
+    expect(icons[0].html?.className).toBe('plant-pin');
+    expect(icons[0].html?.querySelector('.plant-pin__label')?.textContent).toBe('Naranjo amargo');
+    expect(icons[1].html?.className).toBe('plant-pin plant-pin--unidentified');
+  });
+
+  it('908: avisa si no se pueden cargar las plantas y mantiene el mapa', async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error('network'));
+    render(<MapPage />);
+
+    expect(await screen.findByRole('status')).toHaveTextContent('No se pudieron cargar las plantas del mapa.');
+    expect(screen.getByRole('region', { name: 'Mapa' })).toBeInTheDocument();
   });
 });

@@ -4,6 +4,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { LocateFixed, Search, X } from 'lucide-react';
 import { useApp } from '../../context/useApp';
+import { fetchPlantPins } from '../../services/plants';
+import { PLANT_LABEL_MIN_ZOOM, addPlantMarkers } from './plantMarkers';
 
 const VALENCIA: Coordinates = { latitude: 39.4699, longitude: -0.3763 };
 const LOCATION_COLOR = '#3b7ddd';
@@ -52,6 +54,7 @@ export function MapPage() {
   const userMarkerRef = useRef<L.Marker | null>(null);
   const accuracyCircleRef = useRef<L.Circle | null>(null);
   const searchedPlaceMarkerRef = useRef<L.Marker | null>(null);
+  const plantsLayerRef = useRef<L.LayerGroup | null>(null);
   const currentPositionRef = useRef<Coordinates | null>(null);
   const followUserRef = useRef(true);
   const keepBothVisibleRef = useRef(false);
@@ -59,6 +62,7 @@ export function MapPage() {
   const [searchResults, setSearchResults] = useState<PlaceResult[]>([]);
   const [searchError, setSearchError] = useState('');
   const [isSubmittingSearch, setIsSubmittingSearch] = useState(false);
+  const [plantsFailed, setPlantsFailed] = useState(false);
   const lastNominatimSearchAt = useRef(0);
   const searchAbortRef = useRef<AbortController | null>(null);
 
@@ -136,8 +140,37 @@ export function MapPage() {
       userMarkerRef.current = null;
       accuracyCircleRef.current = null;
       searchedPlaceMarkerRef.current = null;
+      plantsLayerRef.current = null;
     };
   }, []);
+
+  // Plantas del inventario (F03.1): icono propio y nombre visible al acercar el zoom.
+  useEffect(() => {
+    const map = mapRef.current;
+    const container = mapElementRef.current;
+    if (!map || !container) return;
+
+    const controller = new AbortController();
+    const syncLabels = () =>
+      container.classList.toggle('plants-labels-visible', map.getZoom() >= PLANT_LABEL_MIN_ZOOM);
+    syncLabels();
+    map.on('zoomend', syncLabels);
+
+    fetchPlantPins(lang, controller.signal)
+      .then((pins) => {
+        plantsLayerRef.current?.remove();
+        plantsLayerRef.current = addPlantMarkers(map, pins);
+        setPlantsFailed(false);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setPlantsFailed(true);
+      });
+
+    return () => {
+      controller.abort();
+      map.off('zoomend', syncLabels);
+    };
+  }, [lang]);
 
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -378,6 +411,12 @@ export function MapPage() {
                 </button>
               ))}
             </div>
+          )}
+
+          {plantsFailed && (
+            <p className="mt-2 rounded-card bg-surface p-3 text-small text-muted shadow-float" role="status">
+              {t('map.plantsError')}
+            </p>
           )}
         </div>
       </div>
