@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { LocateFixed, MapPinOff, Search, X, ChevronUp, ChevronDown, Leaf, Landmark } from 'lucide-react';
+import { ChevronDown, ChevronUp, Landmark, Leaf, LocateFixed, MapPinOff, Search, Trees, X } from 'lucide-react';
 import { useApp } from '../../context/useApp';
 import { LocationPermissionPrompt, useLocationPermission } from '../../components/Location';
 import { formatDistance } from '../../i18n/format';
@@ -11,7 +11,10 @@ import { fetchPlantPins } from '../../services/plants';
 import { groupNearbyPlants, metersBetween } from '../../services/plantGroups';
 import type { GroupArea } from '../../services/plantGroups';
 import type { PlantPin } from '../../types/plant';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { fetchGreenAreas } from '../../services/greenAreas';
+import { addGreenAreasLayer } from './greenAreasLayer';
+import type { GreenAreasLayer } from './greenAreasLayer';
 import { PLANT_LABEL_MIN_ZOOM, addPlantMarkers } from './plantMarkers';
 
 const VALENCIA: Coordinates = { latitude: 39.4699, longitude: -0.3763 };
@@ -84,6 +87,17 @@ export interface MapPageProps {
 export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   const { t, lang } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  // Zonas verdes (NM-08, PA 3011): capa apagada por defecto para no cargar el
+  // mapa; `?zona=<grupo>` la enciende, resalta ese parque y lo encuadra.
+  const zoneParam = searchParams.get('zona');
+  const selectedZone = zoneParam !== null && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(zoneParam) ? zoneParam : null;
+  const [greenAreasToggled, setGreenAreasToggled] = useState(false);
+  const greenAreasOn = greenAreasToggled || selectedZone !== null;
+  // Sube cada vez que la capa queda pintada: avisa al efecto que resalta el parque.
+  const [greenAreasVersion, setGreenAreasVersion] = useState(0);
+  const [greenAreasFailed, setGreenAreasFailed] = useState(false);
+  const greenAreasLayerRef = useRef<GreenAreasLayer | null>(null);
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
@@ -385,6 +399,55 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   }, [updateUserLocation, locationPermission]);
 
   useEffect(() => () => plantsAbortRef.current?.abort(), []);
+
+  // Capa de zonas verdes: se descarga la primera vez que se enciende (queda
+  // en caché para la sesión) y se retira entera al apagarla.
+  const openZoneLabel = t('map.greenAreaOpen');
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!greenAreasOn || !map) return;
+    let cancelled = false;
+    fetchGreenAreas()
+      .then((areas) => {
+        if (cancelled || mapRef.current !== map) return;
+        greenAreasLayerRef.current = addGreenAreasLayer(map, areas, {
+          onOpen: (groupSlug) => navigate(`/zona/${groupSlug}`),
+          text: { open: openZoneLabel },
+        });
+        setGreenAreasVersion((current) => current + 1);
+      })
+      .catch(() => {
+        if (!cancelled) setGreenAreasFailed(true);
+      });
+    return () => {
+      cancelled = true;
+      greenAreasLayerRef.current?.remove();
+      greenAreasLayerRef.current = null;
+    };
+  }, [greenAreasOn, navigate, openZoneLabel]);
+
+  // Parque seleccionado: se resalta solo ese y el mapa se centra en él. Deja
+  // de seguir al usuario para que la siguiente posición no deshaga el encuadre.
+  useEffect(() => {
+    const layer = greenAreasLayerRef.current;
+    if (!layer) return;
+    layer.select(selectedZone);
+    if (selectedZone !== null && layer.fit(selectedZone)) {
+      followUserRef.current = false;
+      keepBothVisibleRef.current = false;
+    }
+  }, [greenAreasVersion, selectedZone]);
+
+  const toggleGreenAreas = () => {
+    if (greenAreasOn && selectedZone !== null) {
+      // Al apagar la capa se olvida también el parque resaltado.
+      const params = new URLSearchParams(searchParams);
+      params.delete('zona');
+      setSearchParams(params, { replace: true });
+    }
+    setGreenAreasFailed(false);
+    setGreenAreasToggled(!greenAreasOn);
+  };
 
   // Área de un grupo de plantas (RF2): círculo que cubre a sus miembros, fuera
   // de React porque es estado puro de Leaflet. Se limpia al reconstruir la capa.
@@ -828,6 +891,12 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
             </div>
           )}
 
+          {greenAreasOn && greenAreasFailed && (
+            <p className="mt-2 rounded-card bg-surface p-3 text-small text-muted shadow-float" role="status">
+              {t('map.greenAreasError')}
+            </p>
+          )}
+
           {(plantsFailed || focusFailed) && (
             <p className="mt-2 rounded-card bg-surface p-3 text-small text-muted shadow-float" role="status">
               {plantsFailed
@@ -848,13 +917,24 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
         <LocateFixed size={21} aria-hidden="true" />
       </button>
 
+      <button
+        type="button"
+        onClick={toggleGreenAreas}
+        aria-pressed={greenAreasOn}
+        aria-label={greenAreasOn ? t('map.greenAreasHide') : t('map.greenAreasShow')}
+        title={greenAreasOn ? t('map.greenAreasHide') : t('map.greenAreasShow')}
+        className={`absolute right-4 bottom-20 z-[1000] flex h-12 w-12 items-center justify-center rounded-full shadow-float transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${greenAreasOn ? 'bg-accent text-on-accent' : 'bg-surface text-ink hover:bg-surface-2'}`}
+      >
+        <Trees size={21} aria-hidden="true" />
+      </button>
+
       {locationPermission === 'denied' && (
         <button
           type="button"
           onClick={retryLocation}
           aria-label={t('location.retryAria')}
           title={t('location.retryAria')}
-          className="absolute right-4 bottom-20 z-[1000] flex h-12 w-12 items-center justify-center rounded-full bg-surface text-ink shadow-float transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="absolute right-4 bottom-36 z-[1000] flex h-12 w-12 items-center justify-center rounded-full bg-surface text-ink shadow-float transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <MapPinOff size={21} aria-hidden="true" />
         </button>

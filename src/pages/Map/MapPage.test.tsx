@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 vi.setConfig({ testTimeout: 15000 });
 import '@testing-library/jest-dom/vitest';
@@ -107,6 +107,19 @@ vi.mock('leaflet', () => ({
     point: leaflet.point,
   },
 }));
+
+// La capa de zonas verdes (NM-08) tiene su propia suite; aquí solo se comprueba
+// cuándo la enciende, apaga y resalta el mapa.
+const greenAreas = vi.hoisted(() => {
+  const layer = { select: vi.fn(), fit: vi.fn(() => true), remove: vi.fn() };
+  return {
+    layer,
+    add: vi.fn((..._args: unknown[]) => layer),
+    fetch: vi.fn(async () => [{ id: 1, groupSlug: 'jardin-de-las-hesperides' }]),
+  };
+});
+vi.mock('./greenAreasLayer', () => ({ addGreenAreasLayer: greenAreas.add }));
+vi.mock('../../services/greenAreas', () => ({ fetchGreenAreas: greenAreas.fetch }));
 
 const geo = {
   watchPosition: vi.fn(),
@@ -580,5 +593,66 @@ describe('MapPage', () => {
       mapClickHandler?.();
     });
     expect(exploreBtn).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('PA 3011: la capa de zonas verdes está apagada por defecto y se enciende y apaga con su botón', async () => {
+    geo.getCurrentPosition.mockImplementation(() => {});
+    renderMap();
+    const toggle = screen.getByRole('button', { name: 'Mostrar zonas verdes' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(greenAreas.fetch).not.toHaveBeenCalled();
+
+    fireEvent.click(toggle);
+    await waitFor(() => expect(greenAreas.add).toHaveBeenCalledTimes(1));
+    expect(greenAreas.add.mock.calls[0]![0]).toBe(leaflet.map);
+    const pressed = screen.getByRole('button', { name: 'Ocultar zonas verdes' });
+    expect(pressed).toHaveAttribute('aria-pressed', 'true');
+    // Sin parque elegido no se resalta ni se mueve el mapa.
+    expect(greenAreas.layer.select).toHaveBeenLastCalledWith(null);
+    expect(greenAreas.layer.fit).not.toHaveBeenCalled();
+
+    fireEvent.click(pressed);
+    await waitFor(() => expect(greenAreas.layer.remove).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: 'Mostrar zonas verdes' })).toBeInTheDocument();
+  });
+
+  it('PA 3011: ?zona= enciende la capa sola, resalta ese parque y encuadra el mapa en él', async () => {
+    geo.getCurrentPosition.mockImplementation(() => {});
+    renderMap(<MapPage />, '/mapa?zona=jardin-de-las-hesperides');
+    await waitFor(() => expect(greenAreas.layer.select).toHaveBeenCalledWith('jardin-de-las-hesperides'));
+    expect(greenAreas.layer.fit).toHaveBeenCalledWith('jardin-de-las-hesperides');
+    const pressed = screen.getByRole('button', { name: 'Ocultar zonas verdes' });
+    // Apagar la capa olvida también el parque resaltado.
+    fireEvent.click(pressed);
+    await waitFor(() => expect(greenAreas.layer.remove).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: 'Mostrar zonas verdes' })).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('PA 3011: tocar «Ver zona» en un contorno abre la ficha de esa zona verde', async () => {
+    geo.getCurrentPosition.mockImplementation(() => {});
+    render(
+      <MemoryRouter initialEntries={['/mapa']}>
+        <Routes>
+          <Route path="/mapa" element={<MapPage />} />
+          <Route path="/zona/:grupo" element={<p>Ficha de zona</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar zonas verdes' }));
+    await waitFor(() => expect(greenAreas.add).toHaveBeenCalled());
+    const options = greenAreas.add.mock.calls[0]![2] as { onOpen: (group: string) => void; text: { open: string } };
+    expect(options.text.open).toBe('Ver zona');
+    act(() => options.onOpen('jardin-de-las-hesperides'));
+    expect(await screen.findByText('Ficha de zona')).toBeInTheDocument();
+  });
+
+  it('avisa si no se pueden cargar las zonas verdes y el mapa sigue funcionando', async () => {
+    geo.getCurrentPosition.mockImplementation(() => {});
+    greenAreas.fetch.mockRejectedValueOnce(new Error('sin red'));
+    renderMap();
+    fireEvent.click(screen.getByRole('button', { name: 'Mostrar zonas verdes' }));
+    expect(await screen.findByText('No se pudieron cargar las zonas verdes.')).toBeInTheDocument();
+    expect(greenAreas.add).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Buscar sitios en el mapa')).toBeInTheDocument();
   });
 });

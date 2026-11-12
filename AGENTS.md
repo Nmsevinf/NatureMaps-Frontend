@@ -80,6 +80,33 @@ Ajustes (`src/pages/Settings/`) permite elegir idioma (es/va/en) y guarda la pre
 (`src/services/identify.ts` → `POST /plants/identify`) y para la ficha
 (`src/services/ficha.ts` → `GET /species` y `GET /species/:id`).
 
+## Flora y zonas verdes (NM-08)
+
+Rama `feat/contenido-flora-zonas-verdes` (PA 3011, 3012 y 3013). Necesita el backend de la
+misma rama (migración `0004`, `npm run import:zonas-verdes` y `npm run db:seed:editorial`).
+
+- **Capa de zonas verdes del mapa** (`src/pages/Map/greenAreasLayer.ts`): apagada por defecto,
+  se enciende con el botón del árbol o con `/mapa?zona=<grupo>`, que además resalta ese parque
+  y encuadra el mapa. Solo contorno, sin relleno opaco, en un pane propio por debajo de los
+  marcadores. Por zoom: punto (< 14), contorno (≥ 14), contorno y nombre (≥ 16). Los estilos
+  están en `src/index.css` (`.green-area-*`). La capa se pide una vez por sesión
+  (`fetchGreenAreas`, `GET /green-areas`).
+- **`/zona/:grupo`** (`src/pages/GreenArea/`): ficha de zona con superficie, flora más
+  frecuente, POIs de dentro, artículos y fuente con licencia.
+- **`/descubre`** y **`/descubre/:slug`** (`src/pages/Discover/`): contenido editorial por
+  secciones (flora, parques, jardines, paisajismo). `?tema=` abre una sección y `?zona=` deja
+  los artículos de una zona. Se entra desde Inicio.
+- **Ficha de planta**: sección «Zonas verdes donde encontrarla» (`greenAreas` de
+  `GET /species/:id`) y acceso al artículo de flora. Si la ficha es un overlay, App la aparta
+  (`awayKey`) en lugar de cerrarla: al volver atrás reaparece.
+- **`GreenAreaContext`** (`src/components/GreenAreaContext/`): bloque «Entorno verde» para
+  cualquier ficha con coordenadas; resuelve la zona con `GET /green-areas/at`. **Pendiente de
+  colocar en la ficha de POI** cuando la UT de NM-06 traiga esa ficha a `main`
+  (`<GreenAreaContext latitude={poi.latitude} longitude={poi.longitude} />`).
+- Los artículos solo están redactados en español; en `va`/`en` la pantalla lo avisa.
+- `useRemote` (`src/hooks/`) y `RemoteLoading`/`RemoteError` (`src/components/RemoteStatus.tsx`)
+  dan los estados cargando/error/reintentar de estas pantallas.
+
 ## Stack
 
 - Vite 8 + `@vitejs/plugin-react`, React 19, TypeScript ~6.0 (build con `tsc -b`).
