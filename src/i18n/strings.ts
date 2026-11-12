@@ -277,6 +277,8 @@ const es = {
   'areaContext.inside': 'Está dentro de {name}',
   'areaContext.near': 'A {distance} de {name}',
   'areaContext.open': 'Ver la zona verde y su flora',
+  'map.explorePanel': 'Exploración cercana',
+  'map.exploreClose': 'Cerrar exploración',
   'map.greenAreasShow': 'Mostrar zonas verdes',
   'map.greenAreasHide': 'Ocultar zonas verdes',
   
@@ -567,6 +569,8 @@ const va: Dict = {
   'areaContext.inside': 'Està dins de {name}',
   'areaContext.near': 'A {distance} de {name}',
   'areaContext.open': 'Veure la zona verda i la seua flora',
+  'map.explorePanel': 'Exploració propera',
+  'map.exploreClose': 'Tancar l’exploració',
   'map.greenAreasShow': 'Mostrar zones verdes',
   'map.greenAreasHide': 'Amagar zones verdes',
   
@@ -854,6 +858,8 @@ const en: Dict = {
   'areaContext.inside': 'It is inside {name}',
   'areaContext.near': '{distance} from {name}',
   'areaContext.open': 'View the green space and its flora',
+  'map.explorePanel': 'Nearby exploration',
+  'map.exploreClose': 'Close exploration',
   'map.greenAreasShow': 'Show green spaces',
   'map.greenAreasHide': 'Hide green spaces',
   

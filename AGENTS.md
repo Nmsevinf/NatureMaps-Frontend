@@ -103,7 +103,9 @@ misma rama (migración `0004`, `npm run import:zonas-verdes` y `npm run db:seed:
   cualquier ficha con coordenadas; resuelve la zona con `GET /green-areas/at`. **Pendiente de
   colocar en la ficha de POI** cuando la UT de NM-06 traiga esa ficha a `main`
   (`<GreenAreaContext latitude={poi.latitude} longitude={poi.longitude} />`).
-- Los artículos solo están redactados en español; en `va`/`en` la pantalla lo avisa.
+- Los artículos están redactados en castellano, valenciano e inglés. Si algún día falta una
+  traducción, la pantalla sirve el español y lo avisa (`isFallbackLanguage`). Los nombres comunes
+  de las especies vienen del inventario municipal, que solo los publica en castellano y valenciano.
 - `useRemote` (`src/hooks/`) y `RemoteLoading`/`RemoteError` (`src/components/RemoteStatus.tsx`)
   dan los estados cargando/error/reintentar de estas pantallas.
 

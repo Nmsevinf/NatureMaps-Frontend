@@ -797,13 +797,13 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
         {exploreOpen ? <ChevronDown size={18} /> : <ChevronUp size={18} />} {t('map.explore')}
       </button>
 
-      <aside className={`absolute inset-x-0 bottom-0 z-[1050] rounded-t-3xl bg-surface shadow-float transition-transform duration-300 ${exploreOpen ? 'translate-y-0' : 'translate-y-full'}`} style={{height:'62%'}} aria-label="Exploración cercana">
+      <aside className={`absolute inset-x-0 bottom-0 z-[1050] rounded-t-3xl bg-surface shadow-float transition-transform duration-300 ${exploreOpen ? 'translate-y-0' : 'translate-y-full'}`} style={{height:'62%'}} aria-label={t('map.explorePanel')}>
         <div className="flex h-full flex-col px-4 pt-2 pb-[env(safe-area-inset-bottom,0px)]">
           <button
             type="button"
             onClick={() => setExploreOpen(false)}
             className="mx-auto -mt-1 mb-1 flex h-11 w-36 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            aria-label="Cerrar exploración"
+            aria-label={t('map.exploreClose')}
           >
             <span className="h-1.5 w-12 rounded-full bg-line-strong" aria-hidden="true" />
           </button>
