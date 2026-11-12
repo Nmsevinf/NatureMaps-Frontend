@@ -118,6 +118,9 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   const [searchError, setSearchError] = useState('');
   const [isSubmittingSearch, setIsSubmittingSearch] = useState(false);
   const [plantsFailed, setPlantsFailed] = useState(false);
+  // true cuando la consulta de cercanas no devuelve nada y el mapa sigue sin
+  // plantas: se recurre al inventario global (UT 908) en lugar de dejarlo vacío.
+  const [needsGlobalPlants, setNeedsGlobalPlants] = useState(false);
   const [focusFailed, setFocusFailed] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [chosenArea, setChosenArea] = useState(false);
@@ -135,6 +138,9 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   const [radius] = useState(readNearbyRadius);
   const [plants, setPlantsState] = useState<PlantPin[] | null>(null);
   const plantsRef = useRef<PlantPin[] | null>(null);
+  // Resultado de «Explorar cerca», separado de los pines del mapa: un área sin
+  // ejemplares deja la lista vacía, pero el mapa conserva lo que ya mostraba.
+  const [areaPlants, setAreaPlants] = useState<PlantPin[] | null>(null);
   const plantsAbortRef = useRef<AbortController | null>(null);
   const lastFetchCenterRef = useRef<Coordinates | null>(null);
   const {
@@ -160,12 +166,18 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
     // de radio, con el máximo del backend para radios mayores.
     const limit = 1000;
     fetchNearbyTrees({ latitude: center.latitude, longitude: center.longitude, radius: searchRadius, limit, lang }, controller.signal)
-      .then((response) => setPlants(response.trees.map((plant) => ({
-        id: plant.id, displayName: plant.displayName, scientificName: plant.scientificName ?? plant.reportedScientificName,
-        latitude: plant.latitude, longitude: plant.longitude, identified: plant.speciesId !== null,
-        speciesId: plant.speciesId, distance: plant.distance,
-      }))))
-      .catch(() => { if (!controller.signal.aborted) { setPlants([]); setAreaFailed(true); } })
+      .then((response) => {
+        const found = response.trees.map((plant) => ({
+          id: plant.id, displayName: plant.displayName, scientificName: plant.scientificName ?? plant.reportedScientificName,
+          latitude: plant.latitude, longitude: plant.longitude, identified: plant.speciesId !== null,
+          speciesId: plant.speciesId, distance: plant.distance,
+        }));
+        setAreaPlants(found);
+        // Un área sin ejemplares (fuera de València, o un radio pequeño) no
+        // debe vaciar el mapa: se conserva lo que ya estaba pintado.
+        if (found.length > 0) setPlants(found);
+      })
+      .catch(() => { if (!controller.signal.aborted) { setAreaPlants([]); setAreaFailed(true); } })
       .finally(() => { if (!controller.signal.aborted) setAreaLoading(false); });
     const cachedPois = poiAreaCache.get(poiCacheKey(center, searchRadius));
     if (cachedPois && Date.now() - cachedPois.savedAt < POI_CACHE_TTL_MS) {
@@ -224,7 +236,10 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
       // Regla de tres: 100 plantas por cada 1000 m de radio.
       const modeLimit = Math.max(1, Math.round(modeRadius / 10));
       const last = lastFetchCenterRef.current;
-      if (last && plantsRef.current !== null && metersBetween(last, coords) < NEARBY_REFRESH_METERS) return;
+      // Con la lista ya poblada basta con no repetir la consulta en cada paso;
+      // si está vacía (fuera de cobertura) se vuelve a intentar al moverse.
+      const loaded = plantsRef.current !== null && plantsRef.current.length > 0;
+      if (last && loaded && metersBetween(last, coords) < NEARBY_REFRESH_METERS) return;
       plantsAbortRef.current?.abort();
       const controller = new AbortController();
       plantsAbortRef.current = controller;
@@ -234,17 +249,26 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
         controller.signal,
       )
         .then((response) => {
-          if (!controller.signal.aborted) {
-            setPlants(response.trees.map((plant) => ({
-              id: plant.id,
-              displayName: plant.displayName,
-              scientificName: plant.scientificName ?? plant.reportedScientificName,
-              latitude: plant.latitude,
-              longitude: plant.longitude,
-              identified: plant.speciesId !== null,
-              speciesId: plant.speciesId,
-              distance: plant.distance,
-            })));
+          if (controller.signal.aborted) return;
+          const found = response.trees.map((plant) => ({
+            id: plant.id,
+            displayName: plant.displayName,
+            scientificName: plant.scientificName ?? plant.reportedScientificName,
+            latitude: plant.latitude,
+            longitude: plant.longitude,
+            identified: plant.speciesId !== null,
+            speciesId: plant.speciesId,
+            distance: plant.distance,
+          }));
+          // Sin ejemplares cerca se deja el mapa como está: el inventario
+          // municipal solo cubre València, y vaciarlo apagaría el mapa entero
+          // para quien consulta desde fuera de la ciudad.
+          if (found.length > 0) {
+            setPlants(found);
+            // Ya hay cobertura alrededor: se vuelve a la vista de cercanas.
+            setNeedsGlobalPlants(false);
+          } else if (plantsRef.current === null || plantsRef.current.length === 0) {
+            setNeedsGlobalPlants(true);
           }
         })
         .catch(() => {
@@ -340,8 +364,10 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
     };
   }, []);
 
-  // Con posición conocida (la fija el permiso) la vía cercanas toma el relevo.
-  const hasPosition = locatedPosition !== null;
+  // Con posición conocida (la fija el permiso) la vía cercanas toma el relevo,
+  // salvo que alrededor no haya ningún ejemplar: entonces se pintan las
+  // globales para que el mapa no quede vacío fuera de València.
+  const hasPosition = locatedPosition !== null && !needsGlobalPlants;
 
   // Plantas del inventario: sin posición conocida, las globales de la UT 908;
   // en cuanto hay posición, la vía cercanas toma el relevo con parámetros por
@@ -733,11 +759,14 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
     });
   };
 
-  const explorePlants = plants === null
+  // «Explorar cerca» lista el resultado del área consultada; si aún no se ha
+  // consultado ninguna, los pines que haya en el mapa.
+  const exploreSource = areaPlants ?? plants;
+  const explorePlants = exploreSource === null
     ? []
-    : hasPosition
-      ? groupNearbyPlants(plants).pins
-      : plants;
+    : locatedPosition !== null
+      ? groupNearbyPlants(exploreSource).pins
+      : exploreSource;
 
   const locateExploreItem = (point: Coordinates) => {
     const map = mapRef.current;

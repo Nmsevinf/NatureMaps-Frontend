@@ -595,6 +595,73 @@ describe('MapPage', () => {
     expect(exploreBtn).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('fuera de València, sin ejemplares cerca, el mapa conserva las plantas del inventario', async () => {
+    Object.defineProperty(navigator, 'permissions', {
+      configurable: true,
+      value: { query: vi.fn(async () => ({ state: 'granted' })) },
+    });
+    // Posición fuera del término municipal: el inventario no cubre esa zona.
+    geo.getCurrentPosition.mockImplementationOnce((success: (position: unknown) => void) => {
+      success({ coords: { latitude: 39.4372, longitude: -0.4653, accuracy: 25 } });
+    });
+    // Cercanas no devuelve nada; las globales sí.
+    vi.mocked(fetch).mockImplementation((async (url: string) => ({
+      ok: true,
+      json: async () => String(url).includes('/trees/nearby')
+        ? { center: { latitude: 39.4372, longitude: -0.4653 }, radius: 1000, returned: 0, limit: 100, language: 'es', trees: [] }
+        : String(url).includes('/trees')
+          ? { nextOffset: null, trees: [{ id: 1, speciesId: 5, displayName: 'Naranjo amargo', latitude: 39.47, longitude: -0.37 }] }
+          : [],
+    })) as unknown as typeof fetch);
+
+    renderMap();
+    await waitFor(() => expect(geo.watchPosition).toHaveBeenCalled());
+    act(() => {
+      (geo.watchPosition.mock.calls[0][0] as (position: unknown) => void)({
+        coords: { latitude: 39.4372, longitude: -0.4653, accuracy: 25 },
+      });
+    });
+
+    // Los pines del inventario siguen pintándose pese a la respuesta vacía.
+    await waitFor(() => expect(leaflet.markerFactory).toHaveBeenCalledWith(
+      [39.47, -0.37], expect.objectContaining({ title: 'Naranjo amargo' })));
+    delete (navigator as unknown as { permissions?: unknown }).permissions;
+  });
+
+  it('al moverse a una zona con ejemplares se vuelve a las plantas cercanas', async () => {
+    Object.defineProperty(navigator, 'permissions', {
+      configurable: true,
+      value: { query: vi.fn(async () => ({ state: 'granted' })) },
+    });
+    geo.getCurrentPosition.mockImplementationOnce((success: (position: unknown) => void) => {
+      success({ coords: { latitude: 39.4372, longitude: -0.4653, accuracy: 25 } });
+    });
+    let nearbyTrees: unknown[] = [];
+    vi.mocked(fetch).mockImplementation((async (url: string) => ({
+      ok: true,
+      json: async () => String(url).includes('/trees/nearby')
+        ? { center: { latitude: 39.47, longitude: -0.37 }, radius: 1000, returned: nearbyTrees.length, limit: 100, language: 'es', trees: nearbyTrees }
+        : String(url).includes('/trees')
+          ? { nextOffset: null, trees: [] }
+          : [],
+    })) as unknown as typeof fetch);
+
+    renderMap();
+    await waitFor(() => expect(geo.watchPosition).toHaveBeenCalled());
+    const onPosition = geo.watchPosition.mock.calls[0][0] as (position: unknown) => void;
+    act(() => onPosition({ coords: { latitude: 39.4372, longitude: -0.4653, accuracy: 25 } }));
+
+    // Entra en cobertura: una respuesta vacía previa no bloquea la siguiente.
+    nearbyTrees = [{
+      id: 9, speciesId: 3, scientificName: 'Celtis australis', displayName: 'Almez',
+      latitude: 39.4795, longitude: -0.3795, distance: 120,
+    }];
+    act(() => onPosition({ coords: { latitude: 39.48, longitude: -0.38, accuracy: 25 } }));
+    await waitFor(() => expect(leaflet.markerFactory).toHaveBeenCalledWith(
+      [39.4795, -0.3795], expect.objectContaining({ title: 'Almez' })));
+    delete (navigator as unknown as { permissions?: unknown }).permissions;
+  });
+
   it('PA 3011: la capa de zonas verdes está apagada por defecto y se enciende y apaga con su botón', async () => {
     geo.getCurrentPosition.mockImplementation(() => {});
     renderMap();
