@@ -115,7 +115,15 @@ const greenAreas = vi.hoisted(() => {
   return {
     layer,
     add: vi.fn((..._args: unknown[]) => layer),
-    fetch: vi.fn(async () => [{ id: 1, groupSlug: 'jardin-de-las-hesperides' }]),
+    fetch: vi.fn(async () => [{
+      id: 1,
+      groupSlug: 'jardin-de-las-hesperides',
+      groupName: 'Jardín de las Hespérides',
+      center: { latitude: 39.4775, longitude: -0.3882 },
+      bbox: [-0.389, 39.477, -0.387, 39.478],
+      featured: true,
+      plants: 69,
+    }]),
   };
 });
 vi.mock('./greenAreasLayer', () => ({ addGreenAreasLayer: greenAreas.add }));
@@ -662,12 +670,65 @@ describe('MapPage', () => {
     delete (navigator as unknown as { permissions?: unknown }).permissions;
   });
 
+  it('agrupa en un marcador las plantas que están dentro de un parque', async () => {
+    vi.mocked(fetch).mockImplementation((async (url: string) => ({
+      ok: true,
+      json: async () => String(url).includes('/trees')
+        ? {
+            nextOffset: null,
+            trees: [
+              { id: 1, speciesId: 5, displayName: 'Cidro', latitude: 39.4775, longitude: -0.3882, greenAreaId: 1 },
+              { id: 2, speciesId: 6, displayName: 'Limonero', latitude: 39.4776, longitude: -0.3883, greenAreaId: 1 },
+              { id: 3, speciesId: 7, displayName: 'Jacaranda', latitude: 39.47, longitude: -0.37, greenAreaId: null },
+            ],
+          }
+        : [],
+    })) as unknown as typeof fetch);
+
+    renderMap();
+
+    // Un solo marcador para las dos plantas del jardín, con su recuento real,
+    // y la planta de calle sigue teniendo el suyo.
+    await waitFor(() => expect(leaflet.markerFactory).toHaveBeenCalledWith(
+      [39.4775, -0.3882], expect.objectContaining({ title: 'Jardín de las Hespérides: 69 ejemplares' })));
+    expect(leaflet.markerFactory).toHaveBeenCalledWith([39.47, -0.37], expect.objectContaining({ title: 'Jacaranda' }));
+    expect(leaflet.markerFactory).not.toHaveBeenCalledWith([39.4776, -0.3883], expect.anything());
+  });
+
+  it('al acercarse al parque se ven sus plantas una a una', async () => {
+    vi.mocked(fetch).mockImplementation((async (url: string) => ({
+      ok: true,
+      json: async () => String(url).includes('/trees')
+        ? {
+            nextOffset: null,
+            trees: [{ id: 1, speciesId: 5, displayName: 'Cidro', latitude: 39.4775, longitude: -0.3882, greenAreaId: 1 }],
+          }
+        : [],
+    })) as unknown as typeof fetch);
+
+    renderMap();
+    await waitFor(() => expect(leaflet.markerFactory).toHaveBeenCalledWith(
+      [39.4775, -0.3882], expect.objectContaining({ title: 'Jardín de las Hespérides: 69 ejemplares' })));
+
+    leaflet.map.getZoom.mockReturnValue(18);
+    const zoomHandlers = leaflet.map.on.mock.calls.filter(([event]) => event === 'zoomend');
+    act(() => {
+      for (const [, handler] of zoomHandlers) (handler as () => void)();
+    });
+
+    await waitFor(() => expect(leaflet.markerFactory).toHaveBeenCalledWith(
+      [39.4775, -0.3882], expect.objectContaining({ title: 'Cidro' })));
+    leaflet.map.getZoom.mockReturnValue(15);
+  });
+
   it('PA 3011: la capa de zonas verdes está apagada por defecto y se enciende y apaga con su botón', async () => {
     geo.getCurrentPosition.mockImplementation(() => {});
     renderMap();
     const toggle = screen.getByRole('button', { name: 'Mostrar zonas verdes' });
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
-    expect(greenAreas.fetch).not.toHaveBeenCalled();
+    // Las zonas se piden al abrir el mapa (hacen falta para agrupar por
+    // parque), pero la capa no se dibuja hasta encender el interruptor.
+    expect(greenAreas.add).not.toHaveBeenCalled();
 
     fireEvent.click(toggle);
     await waitFor(() => expect(greenAreas.add).toHaveBeenCalledTimes(1));
@@ -715,11 +776,12 @@ describe('MapPage', () => {
 
   it('avisa si no se pueden cargar las zonas verdes y el mapa sigue funcionando', async () => {
     geo.getCurrentPosition.mockImplementation(() => {});
-    greenAreas.fetch.mockRejectedValueOnce(new Error('sin red'));
+    greenAreas.fetch.mockRejectedValue(new Error('sin red'));
     renderMap();
     fireEvent.click(screen.getByRole('button', { name: 'Mostrar zonas verdes' }));
     expect(await screen.findByText('No se pudieron cargar las zonas verdes.')).toBeInTheDocument();
     expect(greenAreas.add).not.toHaveBeenCalled();
     expect(screen.getByLabelText('Buscar sitios en el mapa')).toBeInTheDocument();
+    greenAreas.fetch.mockReset();
   });
 });

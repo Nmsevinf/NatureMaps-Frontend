@@ -15,6 +15,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchGreenAreas } from '../../services/greenAreas';
 import { addGreenAreasLayer } from './greenAreasLayer';
 import type { GreenAreasLayer } from './greenAreasLayer';
+import { addParkMarkers, clusterPlantsByPark, PARK_CLUSTER_MAX_ZOOM } from './parkClusters';
+import type { GreenArea } from '../../types/greenArea';
 import { PLANT_LABEL_MIN_ZOOM, addPlantMarkers } from './plantMarkers';
 
 const VALENCIA: Coordinates = { latitude: 39.4699, longitude: -0.3763 };
@@ -98,6 +100,13 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   const [greenAreasVersion, setGreenAreasVersion] = useState(0);
   const [greenAreasFailed, setGreenAreasFailed] = useState(false);
   const greenAreasLayerRef = useRef<GreenAreasLayer | null>(null);
+  // Zonas verdes cargadas: la capa del interruptor las dibuja, y el mapa las
+  // usa además para agrupar por parque los pines de plantas (NM-08).
+  const [greenAreas, setGreenAreas] = useState<GreenArea[] | null>(null);
+  const parksLayerRef = useRef<L.LayerGroup | null>(null);
+  // Por debajo del zoom de parque, las plantas de una zona verde se agrupan en
+  // un solo marcador: en Viveros o el Turia son cientos y tapan el mapa.
+  const [clusterByPark, setClusterByPark] = useState(true);
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const userMarkerRef = useRef<L.Marker | null>(null);
@@ -171,6 +180,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
           id: plant.id, displayName: plant.displayName, scientificName: plant.scientificName ?? plant.reportedScientificName,
           latitude: plant.latitude, longitude: plant.longitude, identified: plant.speciesId !== null,
           speciesId: plant.speciesId, distance: plant.distance,
+          greenAreaId: plant.greenAreaId ?? null,
         }));
         setAreaPlants(found);
         // Un área sin ejemplares (fuera de València, o un radio pequeño) no
@@ -259,6 +269,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
             identified: plant.speciesId !== null,
             speciesId: plant.speciesId,
             distance: plant.distance,
+            greenAreaId: plant.greenAreaId ?? null,
           }));
           // Sin ejemplares cerca se deja el mapa como está: el inventario
           // municipal solo cubre València, y vaciarlo apagaría el mapa entero
@@ -360,6 +371,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
       searchAreaCircleRef.current = null;
       searchedPlaceMarkerRef.current = null;
       plantsLayerRef.current = null;
+      parksLayerRef.current = null;
       groupAreaRef.current = null;
     };
   }, []);
@@ -425,6 +437,35 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   }, [updateUserLocation, locationPermission]);
 
   useEffect(() => () => plantsAbortRef.current?.abort(), []);
+
+  // Zonas verdes: se piden una vez por sesión (quedan en caché) aunque la capa
+  // esté apagada, porque el mapa las necesita para agrupar las plantas por
+  // parque. Si fallan, no se agrupa y no se avisa: el mapa sigue igual.
+  useEffect(() => {
+    let cancelled = false;
+    fetchGreenAreas()
+      .then((areas) => {
+        if (!cancelled) setGreenAreas(areas);
+      })
+      .catch(() => {
+        // Sin zonas no hay agrupación; el interruptor sí avisa si falla.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // El agrupado depende del zoom, igual que las etiquetas de las plantas.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const sync = () => setClusterByPark(map.getZoom() < PARK_CLUSTER_MAX_ZOOM);
+    sync();
+    map.on('zoomend', sync);
+    return () => {
+      map.off('zoomend', sync);
+    };
+  }, []);
 
   // Capa de zonas verdes: se descarga la primera vez que se enciende (queda
   // en caché para la sesión) y se retira entera al apagarla.
@@ -516,8 +557,27 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
       plantsLayerRef.current.remove();
       plantsLayerRef.current = null;
     }
+    parksLayerRef.current?.remove();
+    parksLayerRef.current = null;
     clearGroupArea();
-    const mapPlants = plants;
+    // Hasta el zoom de parque, las plantas que caen dentro de una zona verde
+    // se sustituyen por un marcador del parque con su recuento; las de calle
+    // se siguen pintando una a una.
+    const grouped = clusterByPark && greenAreas !== null && plants !== null
+      ? clusterPlantsByPark(plants, greenAreas)
+      : null;
+    if (grouped && grouped.clusters.length > 0) {
+      parksLayerRef.current = addParkMarkers(
+        map,
+        grouped.clusters,
+        (groupSlug) => {
+          setExploreOpen(false);
+          navigate(`/zona/${groupSlug}`);
+        },
+        { label: (cluster) => t('map.parkPlants', { name: cluster.name, count: cluster.total ?? cluster.shown }) },
+      );
+    }
+    const mapPlants = grouped ? grouped.loose : plants;
     if (!mapPlants || mapPlants.length === 0) {
       groupAreasRef.current = new Map();
       memberAreasRef.current = new Map();
@@ -555,7 +615,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
       return onOpenPlant?.(pin) ?? false;
     };
     plantsLayerRef.current = addPlantMarkers(map, pins, popupFor, handlePlantClick);
-  }, [plants, lang, hasPosition, clearGroupArea, drawArea, onOpenPlant, t]);
+  }, [plants, lang, hasPosition, clearGroupArea, drawArea, onOpenPlant, t, clusterByPark, greenAreas, navigate]);
 
   useEffect(() => {
     const map = mapRef.current;

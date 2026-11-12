@@ -91,6 +91,13 @@ misma rama (migración `0004`, `npm run import:zonas-verdes` y `npm run db:seed:
   marcadores. Por zoom: punto (< 14), contorno (≥ 14), contorno y nombre (≥ 16). Los estilos
   están en `src/index.css` (`.green-area-*`). La capa se pide una vez por sesión
   (`fetchGreenAreas`, `GET /green-areas`).
+- **Agrupación por parque** (`src/pages/Map/parkClusters.ts`): por debajo del zoom 17, las
+  plantas que caen dentro de una zona verde se sustituyen por un marcador del parque con su
+  nombre y el total de ejemplares del inventario (en Viveros o el Turia son cientos y tapaban
+  el mapa). Al tocarlo se abre `/zona/:grupo`. Las de calle y las de una zona que no está en la
+  capa se siguen pintando una a una. El umbral es 17 y no 16 porque el mapa centra al usuario
+  con zoom 16. Para esto, `GET /trees` y `/trees/nearby` traen `greenAreaId` y la capa
+  `plants`; las zonas se piden al abrir el mapa aunque la capa esté apagada.
 - **`/zona/:grupo`** (`src/pages/GreenArea/`): ficha de zona con superficie, flora más
   frecuente, POIs de dentro, artículos y fuente con licencia.
 - **`/descubre`** y **`/descubre/:slug`** (`src/pages/Discover/`): contenido editorial por

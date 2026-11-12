@@ -32,6 +32,8 @@ export interface GreenArea {
   bbox: [number, number, number, number];
   geometry?: AreaGeometry | null;
   hasArticle?: boolean;
+  /** Ejemplares del inventario dentro de este polígono (capa del mapa). */
+  plants?: number;
 }
 
 export interface ArticleSummary {
