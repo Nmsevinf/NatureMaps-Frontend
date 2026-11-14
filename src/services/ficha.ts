@@ -3,6 +3,7 @@ import type { Language } from '../types/language';
 import type { SpeciesGreenArea } from '../types/greenArea';
 import type { PlantPin } from '../types/plant';
 import type { FichaEspecie, FichaFuente } from '../pages/FichaPlanta/types';
+import { normalizarNombreCientifico } from '../utils/speciesName';
 
 // Servicio de la ficha de planta (RF3, UT F06): conecta la pantalla con la API
 // del backend (NatureMaps-Backend) en lugar de leer datos de ejemplo de
@@ -286,13 +287,6 @@ export async function fichaDesdeDetalleConFuentes(
   }
   ficha.sources = fuentesActuales;
   return ficha;
-}
-
-/** Pl@ntNet y el catálogo escriben los híbridos distinto ('Citrus × aurantium'
- * vs 'Citrus aurantium'): se compara sin la '×' ni mayúsculas. */
-function normalizarNombreCientifico(nombre: string): string {
-  // El inventario escribe los híbridos con «x» y el catálogo con «×».
-  return nombre.toLowerCase().replaceAll('×', ' ').replace(/\sx\s/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 /** Índice en la lista de la especie identificada por Pl@ntNet, o null si no hay ficha para ella. */
