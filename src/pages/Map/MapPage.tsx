@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -13,8 +13,10 @@ import { groupNearbyPlants, metersBetween } from '../../services/plantGroups';
 import type { GroupArea } from '../../services/plantGroups';
 import type { PlantPin } from '../../types/plant';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { fetchGreenAreas } from '../../services/greenAreas';
+import { fetchGreenAreaPlants, fetchGreenAreas } from '../../services/greenAreas';
 import { addGreenAreasLayer } from './greenAreasLayer';
+import { addOfflineTileLayer } from './offlineTileLayer';
+import { OfflineSavedToast, OfflineZoneCard } from '../../components/OfflineZone';
 import type { GreenAreasLayer } from './greenAreasLayer';
 import { addParkMarkers, clusterPlantsByPark, PARK_CLUSTER_MAX_ZOOM } from './parkClusters';
 import type { GreenArea } from '../../types/greenArea';
@@ -150,7 +152,10 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   const zoneParam = searchParams.get('zona');
   const selectedZone = zoneParam !== null && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(zoneParam) ? zoneParam : null;
   const [greenAreasToggled, setGreenAreasToggled] = useState(false);
-  const greenAreasOn = greenAreasToggled || selectedZone !== null;
+  // Con el filtro de especie de un parque activo, «Ocultar parques» solo quita
+  // el contorno: `?zona=` se queda en la URL porque hace falta para pedir los
+  // ejemplares, y por eso la capa se apaga con este estado y no con la URL.
+  const [zoneLayerHidden, setZoneLayerHidden] = useState(false);
   // Sube cada vez que la capa queda pintada: avisa al efecto que resalta el parque.
   const [greenAreasVersion, setGreenAreasVersion] = useState(0);
   const [greenAreasFailed, setGreenAreasFailed] = useState(false);
@@ -158,6 +163,26 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   // Zonas verdes cargadas: la capa del interruptor las dibuja, y el mapa las
   // usa además para agrupar por parque los pines de plantas (NM-08).
   const [greenAreas, setGreenAreas] = useState<GreenArea[] | null>(null);
+  // Parque que estaba resaltado al apagar la capa: al volver a encenderla se
+  // vuelve a resaltar en lugar de quedarse sin contorno.
+  const [rememberedZone, setRememberedZone] = useState<string | null>(null);
+  // Parques cuya tarjeta de descarga el usuario ha cerrado, y aviso de «descargado».
+  const [dismissedDownloads, setDismissedDownloads] = useState<string[]>([]);
+  const [savedToast, setSavedToast] = useState<string | null>(null);
+  const closeSavedToast = useCallback(() => setSavedToast(null), []);
+  // Zona resaltada (`?zona=`): su caja reúne todos los polígonos del parque y
+  // permite descargarla para usarla sin conexión desde el propio mapa.
+  const selectedZoneBox = useMemo(() => {
+    const parts = selectedZone ? (greenAreas ?? []).filter((area) => area.groupSlug === selectedZone) : [];
+    if (parts.length === 0) return null;
+    return {
+      bbox: [
+        Math.min(...parts.map((area) => area.bbox[0])), Math.min(...parts.map((area) => area.bbox[1])),
+        Math.max(...parts.map((area) => area.bbox[2])), Math.max(...parts.map((area) => area.bbox[3])),
+      ] as [number, number, number, number],
+      plants: parts.reduce((total, area) => total + (area.plants ?? 0), 0),
+    };
+  }, [selectedZone, greenAreas]);
   const parksLayerRef = useRef<L.LayerGroup | null>(null);
   // Por debajo del zoom de parque, las plantas de una zona verde se agrupan en
   // un solo marcador: en Viveros o el Turia son cientos y tapan el mapa.
@@ -191,6 +216,17 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   // true cuando la consulta de cercanas no devuelve nada y el mapa sigue sin
   // plantas: se recurre al inventario global (UT 908) en lugar de dejarlo vacío.
   const [needsGlobalPlants, setNeedsGlobalPlants] = useState(false);
+  // «Ver en el mapa» desde la ficha de un parque (`?zona=&verEspecie=`): el mapa
+  // enseña solo los ejemplares de esa especie dentro del parque, sin las plantas
+  // cercanas al usuario, para que quede limpio aunque el usuario esté lejos.
+  const speciesRaw = searchParams.get('verEspecie');
+  const zoneSpeciesId = selectedZone !== null && speciesRaw !== null && /^\d+$/.test(speciesRaw) ? Number(speciesRaw) : null;
+  const greenAreasOn = !(zoneLayerHidden && zoneSpeciesId !== null) && (greenAreasToggled || selectedZone !== null);
+  useEffect(() => {
+    if (zoneSpeciesId === null) setZoneLayerHidden(false);
+  }, [zoneSpeciesId]);
+  const [zoneSpecies, setZoneSpecies] = useState<{ name: string; pins: PlantPin[] } | null>(null);
+  const [zoneSpeciesFailed, setZoneSpeciesFailed] = useState(false);
   const [exploreOpen, setExploreOpen] = useState(false);
   const [chosenArea, setChosenArea] = useState(false);
   const [pois, setPois] = useState<Array<{id: number; name: string; lat: number; lon: number; distance: number}>>([]);
@@ -412,10 +448,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
       attributionControl: false,
     });
     mapRef.current = map;
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(map);
+    addOfflineTileLayer(map);
     map.on('dragstart', () => {
       followUserRef.current = false;
       keepBothVisibleRef.current = false;
@@ -568,10 +601,29 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   }, [greenAreasVersion, selectedZone]);
 
   const toggleGreenAreas = () => {
+    if (zoneSpeciesId !== null) {
+      // Con una especie del parque a la vista, ocultar o mostrar la capa no
+      // toca ni la URL ni el filtro, y por tanto tampoco el encuadre del mapa.
+      setGreenAreasFailed(false);
+      if (greenAreasOn) {
+        setZoneLayerHidden(true);
+        setGreenAreasToggled(false);
+      } else {
+        setZoneLayerHidden(false);
+        setGreenAreasToggled(true);
+      }
+      return;
+    }
     if (greenAreasOn && selectedZone !== null) {
-      // Al apagar la capa se olvida también el parque resaltado.
+      // Al apagar la capa se quita el resaltado, pero se recuerda el parque.
+      setRememberedZone(selectedZone);
       const params = new URLSearchParams(searchParams);
       params.delete('zona');
+      setSearchParams(params, { replace: true });
+    } else if (!greenAreasOn && rememberedZone !== null) {
+      // Al encenderla de nuevo, vuelve el contorno del parque que había elegido.
+      const params = new URLSearchParams(searchParams);
+      params.set('zona', rememberedZone);
       setSearchParams(params, { replace: true });
     }
     setGreenAreasFailed(false);
@@ -616,8 +668,9 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
     // Hasta el zoom de parque, las plantas que caen dentro de una zona verde
     // se sustituyen por un marcador del parque con su recuento; las de calle
     // se siguen pintando una a una.
-    const grouped = clusterByPark && greenAreas !== null && plants !== null
-      ? clusterPlantsByPark(plants, greenAreas)
+    const sourcePlants = zoneSpeciesId !== null ? (zoneSpecies?.pins ?? []) : plants;
+    const grouped = clusterByPark && zoneSpeciesId === null && greenAreas !== null && sourcePlants !== null
+      ? clusterPlantsByPark(sourcePlants, greenAreas)
       : null;
     if (grouped && grouped.clusters.length > 0) {
       parksLayerRef.current = addParkMarkers(
@@ -630,7 +683,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
         { label: (cluster) => t('map.parkPlants', { name: cluster.name, count: cluster.total ?? cluster.shown }) },
       );
     }
-    const mapPlants = grouped ? grouped.loose : plants;
+    const mapPlants = grouped ? grouped.loose : sourcePlants;
     if (!mapPlants || mapPlants.length === 0) {
       groupAreasRef.current = new Map();
       memberAreasRef.current = new Map();
@@ -643,7 +696,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
         : '';
       return `<strong>${escapeHtml(pin.displayName)}</strong><br>${detail}${escapeHtml(formatDistance(pin.distance, lang))}`;
     };
-    if (!hasPosition) {
+    if (!hasPosition && zoneSpeciesId === null) {
       groupAreasRef.current = new Map();
       memberAreasRef.current = new Map();
       plantsLayerRef.current = addPlantMarkers(map, mapPlants, popupFor);
@@ -667,7 +720,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
       popupFor,
       handlePlantClick,
     );
-  }, [plants, lang, hasPosition, clearGroupArea, drawArea, onOpenPlant, t, hiddenSpeciesId, clusterByPark, greenAreas, navigate]);
+  }, [plants, zoneSpecies, zoneSpeciesId, lang, hasPosition, clearGroupArea, drawArea, onOpenPlant, t, hiddenSpeciesId, clusterByPark, greenAreas, navigate]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -695,6 +748,8 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
   useEffect(() => {
     const verRaw = searchParams.get('verEspecie');
     if (verRaw === null || !/^\d+$/.test(verRaw)) return;
+    // Con parque (`?zona=`) lo atiende el filtro de especie del parque.
+    if (selectedZone !== null) return;
     const neighborhood = searchParams.get('barrio');
     const requestId = ++speciesFocusRequestRef.current;
     // El GPS puede seguir actualizando la ubicación, pero no debe recentrar el
@@ -745,7 +800,7 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
           setFocusLoading(false);
         }
       });
-  }, [searchParams, setSearchParams, lang, onOpenPlant, t]);
+  }, [searchParams, setSearchParams, lang, onOpenPlant, t, selectedZone]);
 
   const clearSpeciesSelection = () => {
     speciesFocusRequestRef.current += 1;
@@ -756,6 +811,55 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
     setHiddenSpeciesId(null);
     setFocusLoading(false);
     setFocusMessage('');
+  };
+
+  // Ejemplares de la especie elegida dentro del parque: se piden las plantas de
+  // la zona (o su copia descargada) y se queda solo con esa especie.
+  useEffect(() => {
+    setZoneSpecies(null);
+    setZoneSpeciesFailed(false);
+    if (selectedZone === null || zoneSpeciesId === null) return;
+    const controller = new AbortController();
+    fetchGreenAreaPlants(selectedZone, lang, controller.signal)
+      .then((zonePlants) => {
+        if (controller.signal.aborted) return;
+        const pins: PlantPin[] = zonePlants
+          .filter((plant) => plant.speciesId === zoneSpeciesId)
+          .map((plant) => ({
+            id: plant.id,
+            displayName: plant.displayName,
+            scientificName: plant.scientificName ?? plant.reportedScientificName,
+            latitude: plant.latitude,
+            longitude: plant.longitude,
+            identified: true,
+            speciesId: plant.speciesId,
+            greenAreaId: plant.greenAreaId,
+          }));
+        setZoneSpecies({ name: pins[0]?.displayName ?? '', pins });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setZoneSpeciesFailed(true);
+      });
+    return () => controller.abort();
+  }, [selectedZone, zoneSpeciesId, lang]);
+
+  // Encuadra los ejemplares elegidos (y no todo el parque) para verlos de un vistazo.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !zoneSpecies || zoneSpecies.pins.length === 0) return;
+    followUserRef.current = false;
+    keepBothVisibleRef.current = false;
+    const bounds = L.latLngBounds(zoneSpecies.pins.map((pin) => [pin.latitude, pin.longitude] as [number, number]));
+    map.fitBounds(bounds, { padding: [64, 64], maxZoom: 18 });
+  }, [zoneSpecies, greenAreasVersion]);
+
+  const clearSpeciesFilter = () => {
+    const params = new URLSearchParams(searchParams);
+    params.delete('verEspecie');
+    // Con los parques ocultos, quitar el filtro no debe volver a dibujarlos ni
+    // encuadrar el parque: se suelta también la zona.
+    if (zoneLayerHidden) params.delete('zona');
+    setSearchParams(params, { replace: true });
   };
 
   // El área de búsqueda sigue el radio configurado en Ajustes.
@@ -1044,6 +1148,28 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
             </button>
           </form>
 
+          {zoneSpeciesId !== null && (zoneSpecies !== null || zoneSpeciesFailed) && (
+            <div className="mt-2 flex items-center gap-2 rounded-full bg-surface py-1 pr-1 pl-4 shadow-float" role="status">
+              <Leaf size={16} className="shrink-0 text-accent" aria-hidden="true" />
+              <p className="min-w-0 flex-1 truncate text-small font-semibold text-ink">
+                {zoneSpeciesFailed
+                  ? t('map.speciesInParkFailed')
+                  : zoneSpecies!.pins.length === 0
+                    ? t('map.speciesInParkNone')
+                    : t('map.speciesInPark', { name: zoneSpecies!.name, count: zoneSpecies!.pins.length })}
+              </p>
+              <button
+                type="button"
+                onClick={clearSpeciesFilter}
+                aria-label={t('map.speciesInParkClear')}
+                title={t('map.speciesInParkClear')}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
           {(searchResults.length > 0 || searchError) && (
             <div
               className="mt-2 overflow-hidden rounded-card bg-surface shadow-float"
@@ -1141,6 +1267,25 @@ export function MapPage({ onOpenPlant }: MapPageProps = {}) {
       {locationPermission === 'prompt' && (
         <div className="absolute inset-0 z-[1100]">
           <LocationPermissionPrompt onAllow={allowLocation} onDeny={denyLocation} />
+        </div>
+      )}
+
+      {selectedZone && selectedZoneBox && zoneSpeciesId === null && !dismissedDownloads.includes(selectedZone) && (
+        <div className="absolute bottom-9 left-4 right-20 z-[1000]">
+          <OfflineZoneCard
+            groupSlug={selectedZone}
+            bbox={selectedZoneBox.bbox}
+            plantCount={selectedZoneBox.plants}
+            floating
+            onSaved={(record) => setSavedToast(record.name)}
+            onClose={() => setDismissedDownloads((current) => [...current, selectedZone])}
+          />
+        </div>
+      )}
+
+      {savedToast !== null && (
+        <div className="absolute inset-x-4 top-20 z-[1200]">
+          <OfflineSavedToast name={savedToast} onClose={closeSavedToast} />
         </div>
       )}
 

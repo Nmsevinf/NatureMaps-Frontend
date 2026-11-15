@@ -63,3 +63,21 @@ export function formatArea(squareMeters: number, lang: Language): string {
 export function formatCount(value: number, lang: Language): string {
   return new Intl.NumberFormat(LOCALES[lang], { maximumFractionDigits: 0 }).format(value);
 }
+
+/** Peso aproximado: kilobytes por debajo de 1 MB y megabytes con un decimal a partir de él. */
+export function formatBytes(bytes: number, lang: Language): string {
+  if (bytes < 1_000_000) {
+    return `${new Intl.NumberFormat(LOCALES[lang], { maximumFractionDigits: 0 }).format(Math.max(1, Math.round(bytes / 1000)))} KB`;
+  }
+  return `${new Intl.NumberFormat(LOCALES[lang], { maximumFractionDigits: 1 }).format(bytes / 1_000_000)} MB`;
+}
+
+/** Porcentaje entero (0–1 → «42 %» según el idioma). */
+export function formatPercent(fraction: number, lang: Language): string {
+  return new Intl.NumberFormat(LOCALES[lang], { style: 'percent', maximumFractionDigits: 0 }).format(fraction);
+}
+
+/** Fecha corta con el mes en letra, en el idioma activo. */
+export function formatDate(iso: string, lang: Language): string {
+  return new Intl.DateTimeFormat(LOCALES[lang], { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(iso));
+}
